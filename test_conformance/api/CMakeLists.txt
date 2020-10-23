@@ -34,6 +34,7 @@ set(${MODULE_NAME}_SOURCES
          test_mem_object_properties_queries.cpp
          test_queue_properties_queries.cpp
          test_pipe_properties_queries.cpp
+         test_kernel_private_memory_size.cpp
 )
 
 include(../CMakeCommon.txt)
