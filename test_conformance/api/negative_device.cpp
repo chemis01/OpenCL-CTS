@@ -24,7 +24,7 @@ REGISTER_TEST(negative_get_device_info)
 
     cl_device_type device_type = 0;
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
         err = clGetDeviceInfo(invalid_device, CL_DEVICE_TYPE,
                               sizeof(device_type), &device_type, nullptr);
@@ -62,7 +62,7 @@ REGISTER_TEST(negative_get_device_ids)
     cl_device_id devices = nullptr;
 
     cl_int err(CL_SUCCESS);
-    for (auto invalid_platform : get_invalid_objects<cl_platform_id>(deviceID))
+    for (auto invalid_platform : get_invalid_objects<cl_platform_id>(device))
     {
         err = clGetDeviceIDs(invalid_platform, CL_DEVICE_TYPE_DEFAULT, 1,
                              &devices, nullptr);
@@ -135,7 +135,7 @@ REGISTER_TEST_VERSION(negative_get_device_and_host_timer, Version(2, 1))
 {
     cl_ulong *device_timestamp = nullptr, *host_timestamp = nullptr;
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
         err = clGetDeviceAndHostTimer(invalid_device, device_timestamp,
                                       host_timestamp);
@@ -202,7 +202,7 @@ REGISTER_TEST_VERSION(negative_get_host_timer, Version(2, 1))
 {
     cl_ulong *host_timestamp = nullptr;
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
         err = clGetHostTimer(invalid_device, host_timestamp);
         test_failure_error_ret(err, CL_INVALID_DEVICE,
@@ -341,17 +341,23 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
         get_uint_device_info(device, CL_DEVICE_MAX_COMPUTE_UNITS);
     cl_uint max_sub_devices =
         get_uint_device_info(device, CL_DEVICE_PARTITION_MAX_SUB_DEVICES);
+    std::vector<cl_device_id> out_devices;
+    cl_uint max_for_partition = 0;
     if (supported_properties & SupportedPartitionSchemes::Equally)
     {
         properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-        properties[1] = max_compute_units;
+        properties[1] = 1;
         properties[2] = 0;
+        out_devices.resize(static_cast<size_t>(max_compute_units));
+        max_for_partition = max_compute_units;
     }
     else if (supported_properties & SupportedPartitionSchemes::Counts)
     {
         properties[0] = CL_DEVICE_PARTITION_BY_COUNTS;
-        properties[1] = max_sub_devices;
+        properties[1] = 1;
         properties[2] = CL_DEVICE_PARTITION_BY_COUNTS_LIST_END;
+        out_devices.resize(static_cast<size_t>(max_sub_devices));
+        max_for_partition = max_sub_devices;
     }
     else
     {
@@ -361,13 +367,12 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
     }
 
     properties[3] = 0;
-    cl_device_id *out_devices = nullptr;
 
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
-        err = clCreateSubDevices(invalid_device, properties, 1, out_devices,
-                                 nullptr);
+        err = clCreateSubDevices(invalid_device, properties, 1,
+                                 out_devices.data(), nullptr);
         test_failure_error_ret(err, CL_INVALID_DEVICE,
                                "clCreateSubDevices should return "
                                "CL_INVALID_DEVICE when: \"in_device "
@@ -375,14 +380,15 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
                                TEST_FAIL);
     }
 
-    err = clCreateSubDevices(device, nullptr, 1, out_devices, nullptr);
+    err = clCreateSubDevices(device, nullptr, 1, out_devices.data(), nullptr);
     test_failure_error_ret(
         err, CL_INVALID_VALUE,
         "clCreateSubDevices should return CL_INVALID_VALUE when: \"values "
         "specified in properties are not valid\" using a nullptr",
         TEST_FAIL);
 
-    err = clCreateSubDevices(device, properties, 0, out_devices, nullptr);
+    err =
+        clCreateSubDevices(device, properties, 0, out_devices.data(), nullptr);
     test_failure_error_ret(
         err, CL_INVALID_VALUE,
         "clCreateSubDevices should return CL_INVALID_VALUE when: \"out_devices "
@@ -396,7 +402,7 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
             get_invalid_properties(supported_properties
                                    ^ SupportedPartitionSchemes::All_Schemes);
         err = clCreateSubDevices(device, invalid_properties.data(), 1,
-                                 out_devices, nullptr);
+                                 out_devices.data(), nullptr);
         test_failure_error_ret(
             err, CL_INVALID_VALUE,
             "clCreateSubDevices should return CL_INVALID_VALUE when: \"values "
@@ -405,19 +411,20 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
             TEST_FAIL);
     }
 
-    err = clCreateSubDevices(device, properties, properties[1], out_devices,
-                             nullptr);
+    err = clCreateSubDevices(device, properties, max_for_partition + 1,
+                             out_devices.data(), nullptr);
     test_failure_error_ret(
         err, CL_DEVICE_PARTITION_FAILED,
         "clCreateSubDevices should return CL_DEVICE_PARTITION_FAILED when: "
-        "\"if the partition name is supported by the implementation but "
+        "\"the partition name is supported by the implementation but "
         "in_device could not be further partitioned\"",
         TEST_FAIL);
 
     constexpr cl_device_partition_property INVALID_PARTITION_PROPERTY =
         -1; // Aribitrary Invalid number
     properties[0] = INVALID_PARTITION_PROPERTY;
-    err = clCreateSubDevices(device, properties, 1, out_devices, nullptr);
+    err =
+        clCreateSubDevices(device, properties, 1, out_devices.data(), nullptr);
     test_failure_error_ret(
         err, CL_INVALID_VALUE,
         "clCreateSubDevices should return CL_INVALID_VALUE when: \"values "
@@ -429,7 +436,7 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
         properties[0] = CL_DEVICE_PARTITION_BY_COUNTS;
         properties[1] = max_sub_devices + 1;
         err = clCreateSubDevices(device, properties, max_sub_devices + 1,
-                                 out_devices, nullptr);
+                                 out_devices.data(), nullptr);
         test_failure_error_ret(
             err, CL_INVALID_DEVICE_PARTITION_COUNT,
             "clCreateSubDevices should return "
@@ -440,7 +447,8 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
             TEST_FAIL);
 
         properties[1] = -1;
-        err = clCreateSubDevices(device, properties, -1, out_devices, nullptr);
+        err = clCreateSubDevices(device, properties, -1, out_devices.data(),
+                                 nullptr);
         test_failure_error_ret(
             err, CL_INVALID_DEVICE_PARTITION_COUNT,
             "clCreateSubDevices should return "
@@ -454,7 +462,7 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
         properties[0] = CL_DEVICE_PARTITION_EQUALLY;
         properties[1] = max_compute_units + 1;
         err = clCreateSubDevices(device, properties, max_compute_units + 1,
-                                 out_devices, nullptr);
+                                 out_devices.data(), nullptr);
         test_failure_error_ret(
             err, CL_INVALID_DEVICE_PARTITION_COUNT,
             "clCreateSubDevices should return "
@@ -471,7 +479,7 @@ REGISTER_TEST_VERSION(negative_create_sub_devices, Version(1, 2))
 REGISTER_TEST_VERSION(negative_retain_device, Version(1, 2))
 {
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
         err = clRetainDevice(invalid_device);
         test_failure_error_ret(err, CL_INVALID_DEVICE,
@@ -488,7 +496,7 @@ REGISTER_TEST_VERSION(negative_retain_device, Version(1, 2))
 REGISTER_TEST_VERSION(negative_release_device, Version(1, 2))
 {
     cl_int err(CL_SUCCESS);
-    for (auto invalid_device : get_invalid_objects<cl_device_id>(deviceID))
+    for (auto invalid_device : get_invalid_objects<cl_device_id>(device))
     {
         err = clReleaseDevice(invalid_device);
         test_failure_error_ret(err, CL_INVALID_DEVICE,
